@@ -1,3 +1,80 @@
+# OPTIMA — Your Personal Code Optimizer
+
+**OPTIMA** is a web app that optimizes and refactors code using on-device AI. It runs entirely in the browser (no server, no API keys) and includes a floating chat assistant.
+
+---
+
+## Using the app on the web
+
+### Run the app
+
+1. **Install dependencies** (once):
+   ```bash
+   npm install
+   ```
+
+2. **Start the dev server** (e.g. in PowerShell):
+   ```bash
+   npm run dev
+   ```
+
+3. **Open in the browser:**  
+   Go to [http://localhost:5173](http://localhost:5173).
+
+4. **Stop the app:**  
+   In the terminal, press **Ctrl + C**.
+
+On first load you’ll see “Loading OPTIMA…” while the SDK initializes. Then the Code Optimizer and header appear. The first time you use optimization or chat, the LLM model may download and load (you’ll see a banner); after that it’s cached in the browser.
+
+---
+
+## Directions for using the app
+
+### Code Optimizer (main screen)
+
+| Step | What to do |
+|------|------------|
+| **1. Input code** | Paste code into the **Input Code** area (left), or click **Import** (➕) to load a file. Supported extensions (e.g. `.ts`, `.js`, `.py`) are detected and the language is set automatically. |
+| **2. Language** | Use **SELECT CODING LANGUAGE** if the auto-detected language is wrong (e.g. TypeScript, Python, JavaScript). |
+| **3. Optimization focus** | Use **SELECT OPTIMIZATION** to choose: All, Performance, Readability, Security, or Best Practices. |
+| **4. Optimize** | Click **✨ Optimize Code**. Wait for the “thinking” animation, then streaming output in the **Output** panel (right). |
+| **5. Use result** | Use **Use Optimized** to copy the result into the input area, **Copy Formatted** to copy with clean formatting, or **Export** to download as a file. |
+
+- **History:** Click **History** to see past optimizations; use **Revert** on an item to restore that version into the editor.
+- **Character limit:** Input is limited (e.g. 4000 characters); the counter turns red when over the limit and optimization is disabled until you shorten the code.
+
+### Chat Assistant (floating panel)
+
+| Step | What to do |
+|------|------------|
+| **1. Open chat** | Click the **chat bubble** button at the bottom-right of the page. |
+| **2. Send a message** | Type in the input at the bottom and press **Enter** or click the send button. |
+| **3. Wait for reply** | While the model is thinking, you’ll see a typing animation; then the reply streams in with a cursor. |
+| **4. Close** | Click the **X** on the chat header to close the panel. The chat button remains so you can open it again. |
+
+The chat uses the same on-device LLM as the Code Optimizer. If the model isn’t loaded yet, you may be prompted to download/load it (same as for optimization).
+
+---
+
+## Fine details
+
+- **Keyboard shortcuts**
+  - **Ctrl/Cmd + Enter** — Run code optimization (when input has code and is under the limit).
+  - **Ctrl/Cmd + K** — Clear the input area and output.
+- **Theme:** Use the **sun/moon** icon in the header to switch between light and dark mode. The choice is saved in `localStorage`.
+- **Model banner:** Below the header, a bar shows “No LLM model loaded”, download progress, or “Loading…”. Use **Download & Load** (or **Retry** on error) so optimization and chat work.
+- **Badge:** If WebGPU or CPU acceleration is detected, a small badge appears in the header (e.g. “WebGPU” or “CPU”).
+- **Toast messages:** Short notifications (e.g. “Copied to clipboard!”, “Optimization completed!”) appear briefly at the top-right.
+- **Errors:** If something goes wrong, an error message appears in a red bar; use **Dismiss** to clear it. For runtime errors, the app may show “Something went wrong” and the message; check the browser console (F12) for details.
+
+---
+
+## Original documentation (RunAnywhere Web Starter)
+
+The rest of this file is the original README for the RunAnywhere Web Starter App.
+
+---
+
 commands -
 npm run dev in powershell
 ctrl + c for exiting the app in terminal.
