@@ -18,9 +18,13 @@ interface ModelLoaderResult {
  * @param coexist  - If true, only unload same-category models (allows STT+LLM+TTS to coexist).
  */
 export function useModelLoader(category: ModelCategory, coexist = false): ModelLoaderResult {
-  const [state, setState] = useState<LoaderState>(() =>
-    ModelManager.getLoadedModel(category) ? 'ready' : 'idle',
-  );
+  const [state, setState] = useState<LoaderState>(() => {
+    try {
+      return ModelManager.getLoadedModel(category) ? 'ready' : 'idle';
+    } catch {
+      return 'idle';
+    }
+  });
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const loadingRef = useRef(false);

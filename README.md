@@ -1,3 +1,7 @@
+commands -
+npm run dev in powershell
+ctrl + c for exiting the app in terminal.
+
 # RunAnywhere Web Starter App
 
 A minimal React + TypeScript starter app demonstrating **on-device AI in the browser** using the [`@runanywhere/web`](https://www.npmjs.com/package/@runanywhere/web) SDK. All inference runs locally via WebAssembly — no server, no API key, 100% private.
