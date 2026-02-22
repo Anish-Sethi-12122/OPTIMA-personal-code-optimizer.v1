@@ -94,11 +94,11 @@ const MODELS: CompactModelDef[] = [
 // Initialization
 // ---------------------------------------------------------------------------
 
-let _initPromise: Promise<void> | null = null;
+let _initPromise: Promise<typeof RunAnywhere> | null = null;
 let _accelerationMode: AccelerationMode | null = null;
 
 /** Initialize the RunAnywhere SDK. Safe to call multiple times. */
-export async function initSDK(): Promise<void> {
+export async function initSDK(): Promise<typeof RunAnywhere> {
   if (_initPromise) return _initPromise;
 
   _initPromise = (async () => {
@@ -128,6 +128,8 @@ export async function initSDK(): Promise<void> {
       loadModel: (params) => VLMWorkerBridge.shared.loadModel(params),
       unloadModel: () => VLMWorkerBridge.shared.unloadModel(),
     });
+
+    return RunAnywhere;
   })();
 
   return _initPromise;

@@ -1,90 +1,89 @@
-import { useState, useCallback, useRef } from 'react';
-import { ModelManager, ModelCategory, EventBus } from '@runanywhere/web';
+import { useState, useEffect } from 'react';
+import OptimizerWorker from '../workers/optimizer.worker?worker';
 
-export type LoaderState = 'idle' | 'downloading' | 'loading' | 'ready' | 'error';
+export type LoaderState = 'idle' | 'initializing' | 'loading_model' | 'ready' | 'error';
 
-interface ModelLoaderResult {
-  state: LoaderState;
-  progress: number;
-  error: string | null;
-  ensure: () => Promise<boolean>;
+// Global mutable state — shared across all React components without context overhead
+export const sdkState = {
+  status: 'idle' as LoaderState,
+  progress: 0,
+  error: null as string | null,
+  accelerationMode: 'cpu' as 'cpu' | 'webgpu',
+};
+
+// Lightweight pub-sub for React hooks
+const listeners = new Set<() => void>();
+function notifyListeners() {
+  listeners.forEach((fn) => fn());
 }
 
-/**
- * Hook to download + load models for a given category.
- * Tracks download progress and loading state.
- *
- * @param category - Which model category to ensure is loaded.
- * @param coexist  - If true, only unload same-category models (allows STT+LLM+TTS to coexist).
- */
-export function useModelLoader(category: ModelCategory, coexist = false): ModelLoaderResult {
-  const [state, setState] = useState<LoaderState>(() => {
-    try {
-      return ModelManager.getLoadedModel(category) ? 'ready' : 'idle';
-    } catch {
-      return 'idle';
-    }
-  });
-  const [progress, setProgress] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const loadingRef = useRef(false);
+// ─────────────────────────────────────────────────────────────────────────────
+// Global singleton worker — created ONCE, shared across the whole app
+// ─────────────────────────────────────────────────────────────────────────────
+export const globalWorker: Worker = new OptimizerWorker();
 
-  const ensure = useCallback(async (): Promise<boolean> => {
-    // Already loaded
-    if (ModelManager.getLoadedModel(category)) {
-      setState('ready');
-      return true;
-    }
+globalWorker.addEventListener('message', (e) => {
+  const msg = e.data;
 
-    if (loadingRef.current) return false;
-    loadingRef.current = true;
+  switch (msg.type) {
+    case 'READY':
+      sdkState.status = 'ready';
+      sdkState.error = null;
+      notifyListeners();
+      break;
 
-    try {
-      // Find a model for this category
-      const models = ModelManager.getModels().filter((m) => m.modality === category);
-      if (models.length === 0) {
-        setError(`No ${category} model registered`);
-        setState('error');
-        return false;
+    case 'status':
+      if (msg.value === 'initializing' || msg.value === 'loading_model') {
+        sdkState.status = msg.value as LoaderState;
+        notifyListeners();
       }
+      break;
 
-      const model = models[0];
+    case 'progress':
+      sdkState.progress = msg.value;
+      notifyListeners();
+      break;
 
-      // Download if needed
-      if (model.status !== 'downloaded' && model.status !== 'loaded') {
-        setState('downloading');
-        setProgress(0);
+    case 'accelerationMode':
+      sdkState.accelerationMode = msg.value;
+      notifyListeners();
+      break;
 
-        const unsub = EventBus.shared.on('model.downloadProgress', (evt) => {
-          if (evt.modelId === model.id) {
-            setProgress(evt.progress ?? 0);
-          }
-        });
+    case 'init-error':
+      sdkState.status = 'error';
+      sdkState.error = msg.value;
+      notifyListeners();
+      break;
+  }
+});
 
-        await ModelManager.downloadModel(model.id);
-        unsub();
-        setProgress(1);
-      }
+// ─────────────────────────────────────────────────────────────────────────────
+// React hook — components subscribe to state changes
+// ─────────────────────────────────────────────────────────────────────────────
+export function useSDKState() {
+  const [state, setState] = useState({ ...sdkState });
 
-      // Load
-      setState('loading');
-      const ok = await ModelManager.loadModel(model.id, { coexist });
-      if (ok) {
-        setState('ready');
-        return true;
-      } else {
-        setError('Failed to load model');
-        setState('error');
-        return false;
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setState('error');
-      return false;
-    } finally {
-      loadingRef.current = false;
-    }
-  }, [category, coexist]);
+  useEffect(() => {
+    // Sync on mount in case state changed before component rendered
+    setState({ ...sdkState });
+    const handler = () => setState({ ...sdkState });
+    listeners.add(handler);
+    return () => { listeners.delete(handler); };
+  }, []);
 
-  return { state, progress, error, ensure };
+  return state;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Boot function — called once from App.tsx on mount
+// ─────────────────────────────────────────────────────────────────────────────
+export function initializeSDK() {
+  if (sdkState.status !== 'idle' && sdkState.status !== 'error') return;
+
+  sdkState.status = 'initializing';
+  sdkState.error = null;
+  sdkState.progress = 0;
+  notifyListeners();
+
+  globalWorker.postMessage({ type: 'INIT' });
 }
