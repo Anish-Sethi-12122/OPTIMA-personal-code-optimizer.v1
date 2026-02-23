@@ -1,59 +1,54 @@
-# OPTIMA — Project Root Structure
+# OPTIMA - Project Root Structure
 
+```text
+OPTIMA-personal-code-optimizer.v1/
+|-- index.html
+|-- package.json
+|-- package-lock.json
+|-- tsconfig.json
+|-- vite.config.ts
+|-- vercel.json
+|-- README.md
+|-- optima_architecture_and_demo.md
+|-- optima_v2_architecture.md
+|-- project-root-structure.md
+|-- src/
+|   |-- main.tsx
+|   |-- App.tsx
+|   |-- ErrorBoundary.tsx
+|   |-- runanywhere.ts
+|   |-- vite-env.d.ts
+|   |-- components/
+|   |   |-- CodeOptimizerTab.tsx
+|   |   |-- ExplainPanel.tsx
+|   |   |-- DiffViewer.tsx
+|   |   |-- ModelStatusBar.tsx
+|   |   |-- PipelineIndicator.tsx
+|   |   |-- ChatTab.tsx
+|   |   |-- VisionTab.tsx
+|   |   |-- VoiceTab.tsx
+|   |   |-- FloatingChatAgent.tsx
+|   |   `-- ModelBanner.tsx
+|   |-- hooks/
+|   |   `-- useModelLoader.ts
+|   |-- lib/
+|   |   |-- staticAnalyzer.ts
+|   |   |-- promptBuilder.ts
+|   |   `-- codeDiff.ts
+|   |-- workers/
+|   |   |-- optimizer.worker.ts
+|   |   `-- vlm-worker.ts
+|   `-- styles/
+|       `-- index.css
+|-- tests/
+|   |-- web-starter-app-bugs.md
+|   `-- web-starter-app-test-suite.md
+`-- node_modules/
 ```
-OPTIMA-personal-code-optimizer.v2-main/
-│
-├── index.html                          # App entry point
-├── package.json                        # Dependencies & scripts
-├── package-lock.json                   # Lockfile
-├── tsconfig.json                       # TypeScript config
-├── tsconfig.tsbuildinfo                # TS build cache
-├── vite.config.ts                      # Vite bundler config
-├── vercel.json                         # Vercel deployment config
-├── .gitignore                          # Git ignore rules
-├── README.md                           # Project documentation
-├── optima_architecture_and_demo.md     # Architecture & demo notes
-├── optima_v2_architecture.md           # V2 architecture design
-│
-├── src/                                # Source code
-│   ├── main.tsx                        # React entry point
-│   ├── App.tsx                         # Root app component
-│   ├── ErrorBoundary.tsx               # Global error boundary
-│   ├── runanywhere.ts                  # RunAnywhere SDK setup
-│   ├── vite-env.d.ts                   # Vite type declarations
-│   │
-│   ├── components/                     # UI components
-│   │   ├── CodeOptimizerTab.tsx        # Main optimizer UI
-│   │   ├── ExplainPanel.tsx            # Optimization explanation panel
-│   │   ├── DiffViewer.tsx              # Before/after code diff
-│   │   ├── ModelStatusBar.tsx          # Model loading status bar
-│   │   ├── PipelineIndicator.tsx       # Pipeline stage indicator
-│   │   ├── ChatTab.tsx                 # Chat tab (placeholder)
-│   │   ├── VisionTab.tsx              # Vision tab (placeholder)
-│   │   ├── VoiceTab.tsx               # Voice tab (placeholder)
-│   │   ├── FloatingChatAgent.tsx       # Floating chat (placeholder)
-│   │   └── ModelBanner.tsx             # Model banner (placeholder)
-│   │
-│   ├── lib/                            # Core logic
-│   │   ├── staticAnalyzer.ts           # Deterministic code analysis
-│   │   ├── promptBuilder.ts            # LLM prompt construction & normalization
-│   │   └── codeDiff.ts                 # Code diff utilities
-│   │
-│   ├── hooks/                          # React hooks
-│   │   └── useModelLoader.ts           # Model loading state hook
-│   │
-│   ├── styles/                         # Stylesheets
-│   │   └── index.css                   # Global styles
-│   │
-│   └── workers/                        # Web Workers
-│       ├── optimizer.worker.ts         # Optimization pipeline worker
-│       └── vlm-worker.ts              # Vision model worker (placeholder)
-│
-├── tests/                              # Test documentation
-│   ├── web-starter-app-bugs.md         # Known bugs
-│   └── web-starter-app-test-suite.md   # Test suite documentation
-│
-└── dist/                               # Production build output
-    ├── index.html
-    └── assets/                         # Bundled JS, CSS, WASM
-```
+
+## File Responsibilities
+
+- `src/workers/optimizer.worker.ts`: model lifecycle, LLM calls, dirty JSON extraction, retry, final result emission.
+- `src/lib/promptBuilder.ts`: strict 4-key prompt contract + robust normalization and salvage logic.
+- `src/components/CodeOptimizerTab.tsx`: optimization UX, stage rendering, rotating loading messages, code/diff/explain presentation.
+- `src/lib/staticAnalyzer.ts`: deterministic analysis and chunk guidance.
