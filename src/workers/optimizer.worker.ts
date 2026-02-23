@@ -3,11 +3,13 @@ import { buildPrompt, normalizeLLMOutput } from '../lib/promptBuilder';
 import { TextGeneration } from '@runanywhere/web-llamacpp';
 import type { OptimizationFocus } from '../lib/promptBuilder';
 
-const INFERENCE_TIMEOUT_MS = 10_000;
-const MAX_NEW_TOKENS = 50;
-const TEMPERATURE = 0.2;
+const INFERENCE_TIMEOUT_MS = 30_000;
+const MAX_NEW_TOKENS = 400;
+const TEMPERATURE = 0.05;
+const MAX_INPUT_LINES = 50; // Progressive optimization threshold
 
 let modelLoaded = false;
+let modelInitializing = false;
 let cancelCurrent: (() => void) | null = null;
 
 class InferenceTimeoutError extends Error {
@@ -65,6 +67,16 @@ async function workerInitSDK() {
         try {
             await ModelManager.downloadModel(model.id);
             self.postMessage({ type: 'progress', value: 1 });
+        } catch (err: any) {
+            // If download fails, check if it was already downloaded
+            const models = ModelManager.getModels();
+            const currentModel = models.find((m: any) => m.id === model.id);
+            const currentStatus = String(currentModel?.status || '').toLowerCase();
+            if (currentStatus === 'downloaded' || currentStatus === 'loaded') {
+                self.postMessage({ type: 'progress', value: 1 });
+            } else {
+                throw err;
+            }
         } finally {
             unsub();
         }
@@ -86,7 +98,7 @@ async function workerInitSDK() {
     }
 }
 
-async function runLLMCall(prompt: string): Promise<string> {
+async function runLLMCall(prompt: string, retryCount: number = 0): Promise<string> {
     let output = '';
     let firstTokenSent = false;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -137,10 +149,99 @@ async function runLLMCall(prompt: string): Promise<string> {
     }
 
     if (!output.trim()) {
-        throw new Error('Model returned empty output');
+        // Retry with progressively simpler prompts if empty output
+        if (retryCount === 0) {
+            const simplePrompt = 'Optimize this code:\n' + prompt.split('\n').slice(-3).join('\n');
+            self.postMessage({ type: 'retry_clear' });
+            return runLLMCall(simplePrompt, 1);
+        } else if (retryCount === 1) {
+            const verySimplePrompt = 'Complete this code optimization:\n' + prompt.split('\n').slice(-2).join('\n');
+            self.postMessage({ type: 'retry_clear' });
+            return runLLMCall(verySimplePrompt, 2);
+        }
+        throw new Error('Model returned empty output after retries');
+    }
+
+    // Check if output appears incomplete
+    const isIncomplete = 
+        output.endsWith('...') ||
+        output.endsWith('..') ||
+        output.endsWith(' ->') ||
+        (output.endsWith('{') && !output.includes('}')) ||
+        (output.endsWith('(') && !output.includes(')')) ||
+        output.match(/\b(if|for|while|function|class)\s*$/i) ||
+        output.match(/(\{|\\|\/\*)\s*$/);
+
+    if (isIncomplete && retryCount < 2) {
+        // Retry with request for complete output
+        const completePrompt = prompt + '\n\nIMPORTANT: Return the COMPLETE optimized code, do not cut off mid-sentence.';
+        self.postMessage({ type: 'retry_clear' });
+        return runLLMCall(completePrompt, retryCount + 1);
     }
 
     return limitOutputToTokens(output, MAX_NEW_TOKENS);
+}
+
+function chunkCode(code: string): string[] {
+    const lines = code.split('\n');
+    if (lines.length <= MAX_INPUT_LINES) {
+        return [code];
+    }
+
+    const chunks: string[] = [];
+    const chunkSize = Math.floor(MAX_INPUT_LINES * 0.7); // More conservative chunking
+    
+    // Find logical break points (function boundaries, class definitions, etc.)
+    for (let i = 0; i < lines.length; i += chunkSize) {
+        let endIdx = Math.min(i + chunkSize, lines.length);
+        
+        // Try to break at logical boundaries
+        if (endIdx < lines.length) {
+            // Look for function/class/end-of-block boundaries within reasonable range
+            const searchRange = Math.min(10, endIdx - i);
+            for (let j = 0; j < searchRange; j++) {
+                const line = lines[endIdx - j - 1].trim();
+                if (line.match(/^(function|class|def|}|\/\/|\/\*|#)/) || 
+                    line.endsWith('}') || line.endsWith('*/')) {
+                    endIdx = endIdx - j;
+                    break;
+                }
+            }
+        }
+        
+        const chunk = lines.slice(i, endIdx).join('\n');
+        chunks.push(chunk);
+        
+        // Add context overlap between chunks
+        if (endIdx < lines.length && chunks.length > 0) {
+            const overlapLines = lines.slice(Math.max(0, endIdx - 3), endIdx);
+            if (overlapLines.length > 0) {
+                chunks[chunks.length - 1] += '\n// Context for next chunk:\n' + overlapLines.join('\n');
+            }
+        }
+    }
+    
+    return chunks;
+}
+
+async function optimizeChunk(chunk: string, language: string, focus: OptimizationFocus): Promise<string> {
+    const analysis = analyzeCode(chunk, language);
+    const prompt = buildPrompt(chunk, language, focus, analysis);
+    
+    self.postMessage({ type: 'substage', value: `Optimizing chunk...` });
+    const modelOutput = await runLLMCall(prompt);
+    
+    const parsed = normalizeLLMOutput(modelOutput, chunk, analysis, language);
+
+    // Only fall back to original if parsing genuinely failed (truncation,
+    // missing named functions/imports, etc). A _parse_warning alone just means
+    // a minor bracket repair was applied — the code is still usable.
+    if (!parsed._parsed) {
+        self.postMessage({ type: 'substage', value: `Using original chunk (could not validate output)` });
+        return chunk;
+    }
+
+    return parsed.optimized_code;
 }
 
 function limitOutputToTokens(text: string, maxTokens: number): string {
@@ -158,12 +259,20 @@ self.onmessage = async (e: MessageEvent<any>) => {
             return;
         }
 
+        if (modelInitializing) {
+            // Already initializing, don't start again
+            return;
+        }
+
         try {
+            modelInitializing = true;
             self.postMessage({ type: 'status', value: 'initializing' });
             await workerInitSDK();
             modelLoaded = true;
+            modelInitializing = false;
             self.postMessage({ type: 'READY' });
         } catch (err: any) {
+            modelInitializing = false;
             self.postMessage({ type: 'init-error', value: err?.message || String(err) });
         }
         return;
@@ -186,20 +295,66 @@ self.onmessage = async (e: MessageEvent<any>) => {
             const analysis = analyzeCode(code, language);
             self.postMessage({ type: 'analysis', value: analysis });
 
-            const fullPrompt = buildPrompt(code, language, focus, analysis);
+            // Check if code needs chunking
+            const chunks = chunkCode(code);
+            let optimizedCode = code;
 
-            self.postMessage({ type: 'stage', value: 'Optimizing' });
-            let modelOutput = '';
-            modelOutput = await runLLMCall(fullPrompt);
-            self.postMessage({ type: 'stream_idle' });
+            if (chunks.length > 1) {
+                self.postMessage({ type: 'stage', value: 'Refining Optimization' });
+                self.postMessage({ type: 'chunk_progress', value: { current: 0, total: chunks.length } });
+                
+                const optimizedChunks: string[] = [];
+                for (let i = 0; i < chunks.length; i++) {
+                    self.postMessage({ type: 'chunk_progress', value: { current: i + 1, total: chunks.length } });
+                    const optimizedChunk = await optimizeChunk(chunks[i], language, focus);
+                    optimizedChunks.push(optimizedChunk);
+                }
+                
+                optimizedCode = optimizedChunks.join('\n');
+            } else {
+                // ── Single-chunk path ──────────────────────────────────────
+                const fullPrompt = buildPrompt(code, language, focus, analysis);
+                self.postMessage({ type: 'stage', value: 'Optimizing' });
+                const modelOutput = await runLLMCall(fullPrompt);
+                self.postMessage({ type: 'stream_idle' });
 
-            self.postMessage({ type: 'stage', value: 'Finalizing Output' });
-            const parsed = normalizeLLMOutput(modelOutput, code, analysis, language);
-            if (!parsed._parsed) {
-                throw new Error(parsed.explanation || 'Failed to parse model output');
+                self.postMessage({ type: 'stage', value: 'Finalizing Output' });
+                const parsed = normalizeLLMOutput(modelOutput, code, analysis, language);
+
+                // Always send 'done' — never throw on a fallback result.
+                // parsed._no_change + parsed._parse_warning tells the UI it
+                // was a safe fallback (original preserved), not a crash.
+                self.postMessage({ type: 'done', value: parsed });
+                return;
             }
 
-            self.postMessage({ type: 'done', value: parsed });
+            // ── Multi-chunk path ───────────────────────────────────────────
+            // Build result directly from the reassembled code. Do NOT call
+            // normalizeLLMOutput(optimizedCode, code) here — that would compare
+            // the already-optimized output against itself as the "original"
+            // and almost always produce a wrong no-change / validation failure.
+            const finalAnalysis = analyzeCode(optimizedCode, language);
+            self.postMessage({
+                type: 'done',
+                value: {
+                    algorithm:               finalAnalysis.detected_algorithm || 'Custom Logic',
+                    complexity_before:       analysis.estimated_complexity || 'Unknown',
+                    complexity_after:        finalAnalysis.estimated_complexity || 'Unknown',
+                    bottleneck:              finalAnalysis.detected_patterns[0]?.description || 'None detected',
+                    strategy:                'Multi-chunk optimization applied',
+                    optimization_strategy:   'Multi-chunk optimization applied',
+                    tradeoffs:               'None',
+                    estimated_improvement:   'Optimized across ' + chunks.length + ' chunks',
+                    confidence:              Math.round(finalAnalysis.confidence_score * 100),
+                    explanation:             'Code was split into ' + chunks.length + ' chunks and each was optimized independently.',
+                    optimized_code:          optimizedCode,
+                    detected_patterns:       finalAnalysis.detected_patterns,
+                    possible_optimizations:  finalAnalysis.possible_optimizations,
+                    static_confidence_score: finalAnalysis.confidence_score,
+                    _parsed:                 true,
+                    _no_change:              optimizedCode === code,
+                },
+            });
         } catch (err: any) {
             cancelCurrent = null;
             const errMsg = err?.message || String(err);

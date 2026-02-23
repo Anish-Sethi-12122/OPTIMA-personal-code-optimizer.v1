@@ -85,5 +85,10 @@ export function initializeSDK() {
   sdkState.progress = 0;
   notifyListeners();
 
-  globalWorker.postMessage({ type: 'INIT' });
+  // Add small delay to prevent rapid successive calls during hot reload
+  setTimeout(() => {
+    if (sdkState.status === 'initializing') {
+      globalWorker.postMessage({ type: 'INIT' });
+    }
+  }, 100);
 }
